@@ -221,6 +221,13 @@ hr{border:none;border-top:1px solid #e8e8e4;margin:14px 0}
       </div>
     </div>
     <div class="fp">
+      <div id="est-admin-row" style="display:none;margin-bottom:10px;padding:10px;background:#fff8e6;border-radius:8px;border:1px solid #e8a84c">
+        <div style="font-size:11px;font-weight:700;color:#854F0B;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Admin controls</div>
+        <div class="g2">
+          <div><label>Log on behalf of</label><select id="e-behalf"><option value="">-- my own entry --</option></select></div>
+          <div><label>Date (leave blank for today)</label><input type="date" id="e-date-admin" placeholder=""></div>
+        </div>
+      </div>
       <div class="g5" style="margin-bottom:10px">
         <div><label>Logging as</label><div class="ro" id="e-who">--</div></div>
         <div><label>Type <span class="req">*</span></label><select id="e-type" onchange="onType('e')"><option value="">-- select --</option><option>Chargeable</option><option>Non-Chargeable</option><option>Leave</option></select></div>
@@ -274,9 +281,12 @@ hr{border:none;border-top:1px solid #e8e8e4;margin:14px 0}
         <div><label>Activity detail</label><input id="a-detail" placeholder="e.g. Reviewed AR aging"></div>
       </div>
       <button class="btn btnp" onclick="submitAct()">+ Log actual</button>
-      <div id="act-behalf-row" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #ddd">
-        <label style="color:#854F0B;margin-bottom:6px">Admin: log on behalf of</label>
-        <select id="a-behalf" style="max-width:240px"><option value="">-- my own entry --</option></select>
+      <div id="act-behalf-row" style="display:none;margin-top:10px;padding:10px;background:#fff8e6;border-radius:8px;border:1px solid #e8a84c">
+        <div style="font-size:11px;font-weight:700;color:#854F0B;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Admin controls</div>
+        <div class="g2">
+          <div><label>Log on behalf of</label><select id="a-behalf"><option value="">-- my own entry --</option></select></div>
+          <div><label>Date (leave blank for today)</label><input type="date" id="a-date-admin"></div>
+        </div>
       </div>
     </div>
     <div id="act-entries"><div class="empty">No actuals yet today</div></div>
@@ -474,7 +484,8 @@ hr{border:none;border-top:1px solid #e8e8e4;margin:14px 0}
 </div>
 
 </div>
-<script>
+<script><script>
+
 
 const SCRIPT_URL='https://script.google.com/macros/s/AKfycbzte-actfOvMkBpPVuRIfPMt63T1bhiFYkBR1Wk8IH0Bczff9rHiws8lcoKYss2QFakUw/exec';
 
@@ -575,8 +586,11 @@ function doLogin(){
     document.getElementById('uname').textContent=member.name;
     document.getElementById('e-who').textContent=member.name;
     document.getElementById('a-who').textContent=member.name;
-    fillDDs(); setSync('ok','Connected');
-    fetchLockState(); loadEst();
+    setSync('ok','Loading...');
+    loadMasterConfig(function() {
+      fillDDs(); setSync('ok','Connected');
+      fetchLockState(); loadEst();
+    });
     return;
   }
   errEl.textContent='Incorrect password. Try again.';
@@ -599,12 +613,26 @@ function goTab(name){
   if(name==='setup') renderSetup();
 }
 
+function loadMasterConfig(callback) {
+  api({action:'getMasterConfig'}).then(function(r) {
+    if (r.members && r.members.length > 0) members = r.members;
+    if (r.clients && r.clients.length > 0) clients = r.clients;
+    if (callback) callback();
+  }).catch(function(e) {
+    // Fall back to hardcoded defaults if sheet not set up yet
+    if (callback) callback();
+  });
+}
+
 function fillDDs(){
   var opts='<option value="">-- select --</option>'+clients.map(function(c){return '<option value="'+c.name+'">'+c.name+'</option>';}).join('');
   document.getElementById('e-client').innerHTML=opts;
   document.getElementById('a-client').innerHTML=opts;
   var behalf=document.getElementById('a-behalf');
   if(behalf) behalf.innerHTML='<option value="">-- my own entry --</option>'+members.map(function(m){return '<option value="'+m.name+'">'+m.name+'</option>';}).join('');
+  // Fill estimate behalf dropdown
+  var estBehalf=document.getElementById('e-behalf');
+  if(estBehalf) estBehalf.innerHTML='<option value="">-- my own entry --</option>'+members.map(function(m){return '<option value="'+m.name+'">'+m.name+'</option>';}).join('');
 }
 
 function onType(p){
@@ -620,9 +648,11 @@ function applyAdminUI(){
   var btnTE=document.getElementById('btn-team-est');
   var btnTA=document.getElementById('btn-team-act');
   var brow=document.getElementById('act-behalf-row');
+  var erow=document.getElementById('est-admin-row');
   if(btnTE) btnTE.style.display=show;
   if(btnTA) btnTA.style.display=show;
   if(brow) brow.style.display=adminOpen?'block':'none';
+  if(erow) erow.style.display=adminOpen?'block':'none';
   var upill=document.getElementById('upill');
   if(upill){upill.style.background=adminOpen?'#FAEEDA':'#E6F1FB';upill.style.borderColor=adminOpen?'#e8a84c':'#b3d4f0';}
 }
@@ -696,7 +726,16 @@ function validate(p){
 async function submitEst(oMember,oBy){
   if(!me){document.getElementById('ov-login').style.display='flex';return;}
   if(!validate('e')) return;
-  if(lockState.est_locked&&!oMember){if(adminOpen){showOverride('est',submitEst);}else{showLocked('est');}return;}
+  // Check behalf dropdown (admin)
+  var behalfEl=document.getElementById('e-behalf');
+  var behalf=adminOpen&&behalfEl&&behalfEl.value?behalfEl.value:'';
+  var logName=oMember||behalf||me.name;
+  var isAdmin=!!(oMember||behalf);
+  if(lockState.est_locked&&!oMember&&!isAdmin){if(adminOpen){showOverride('est',submitEst);}else{showLocked('est');}return;}
+  // Date — admin can backdate
+  var dateAdminEl=document.getElementById('e-date-admin');
+  var useDate=adminOpen&&dateAdminEl&&dateAdminEl.value?dateAdminEl.value:TODAY;
+  var useDateLabel=adminOpen&&dateAdminEl&&dateAdminEl.value?dateAdminEl.value:TODAY;
   var type=document.getElementById('e-type').value;
   var hrs=parseFloat(document.getElementById('e-hrs').value);
   var client=type==='Chargeable'?document.getElementById('e-client').value:'';
@@ -704,11 +743,15 @@ async function submitEst(oMember,oBy){
   var cat=document.getElementById('e-cat').value;
   var wfh=document.getElementById('e-wfh').value;
   var notes=document.getElementById('e-notes').value.trim();
-  var logName=oMember||me.name;
-  var logInit=oMember?(members.find(function(m){return m.name===oMember;})||{initial:''}).initial:me.initial;
+  var logInit=logName!==me.name?(members.find(function(m){return m.name===logName;})||{initial:''}).initial:me.initial;
+  var loggedBy=isAdmin?me.name:'';
+  var monthStr=new Date(useDate).toLocaleString('default',{month:'short',year:'numeric'});
   try{
-    await api({action:'appendEst',date:TODAY,adminOverride:!!oMember,values:[TODAY,logName,logInit,type,client,proj,cat,hrs,wfh,notes,new Date().toLocaleTimeString('en-IN'),MONTH]});
+    await api({action:'appendEst',date:useDate,adminOverride:isAdmin||!!oMember,
+      values:[useDate,logName,logInit,type,client,proj,cat,hrs,wfh,notes,new Date().toLocaleTimeString('en-IN'),monthStr,loggedBy,isAdmin?'Yes':'']});
     ['e-type','e-client','e-proj','e-hrs','e-cat','e-wfh','e-notes'].forEach(function(id){document.getElementById(id).value='';});
+    if(behalfEl) behalfEl.value='';
+    if(dateAdminEl) dateAdminEl.value='';
     onType('e'); toast('Time submitted'); loadEst();
   }catch(e){setSync('err','Error');toast(e.message,true);}
 }
@@ -773,7 +816,13 @@ async function loadTeamEst(){
 async function submitAct(oMember,oBy){
   if(!me){document.getElementById('ov-login').style.display='flex';return;}
   if(!validate('a')) return;
-  if(lockState.act_locked&&!oMember){if(adminOpen){showOverride('act',submitAct);}else{showLocked('act');}return;}
+  var behalf=adminOpen?(document.getElementById('a-behalf').value||''):'';
+  var logName=oMember||behalf||me.name;
+  var isAdmin=!!(oMember||behalf);
+  if(lockState.act_locked&&!oMember&&!isAdmin){if(adminOpen){showOverride('act',submitAct);}else{showLocked('act');}return;}
+  // Backdate support for admin
+  var dateAdminEl=document.getElementById('a-date-admin');
+  var useDate=adminOpen&&dateAdminEl&&dateAdminEl.value?dateAdminEl.value:TODAY;
   var type=document.getElementById('a-type').value;
   var hrs=parseFloat(document.getElementById('a-hrs').value);
   var client=type==='Chargeable'?document.getElementById('a-client').value:'';
@@ -782,15 +831,15 @@ async function submitAct(oMember,oBy){
   var wfh=document.getElementById('a-wfh').value;
   var comment=document.getElementById('a-comment').value.trim();
   var detail=document.getElementById('a-detail').value.trim();
-  var behalf=adminOpen?(document.getElementById('a-behalf').value||''):'';
-  var logName=oMember||behalf||me.name;
   var logInit=logName!==me.name?(members.find(function(m){return m.name===logName;})||{initial:''}).initial:me.initial;
-  var isAdmin=!!(oMember||behalf);
   var loggedBy=isAdmin?(oBy||me.name):'';
+  var monthStr=new Date(useDate).toLocaleString('default',{month:'short',year:'numeric'});
   try{
-    await api({action:'appendAct',date:TODAY,adminOverride:!!oMember,values:[TODAY,logName,logInit,type,client,proj,cat,hrs,wfh,comment,detail,new Date().toLocaleTimeString('en-IN'),MONTH,loggedBy,isAdmin?'Yes':'']});
+    await api({action:'appendAct',date:useDate,adminOverride:isAdmin||!!oMember,
+      values:[useDate,logName,logInit,type,client,proj,cat,hrs,wfh,comment,detail,new Date().toLocaleTimeString('en-IN'),monthStr,loggedBy,isAdmin?'Yes':'']});
     ['a-type','a-client','a-proj','a-hrs','a-cat','a-wfh','a-comment','a-detail'].forEach(function(id){document.getElementById(id).value='';});
     var bel=document.getElementById('a-behalf'); if(bel) bel.value='';
+    if(dateAdminEl) dateAdminEl.value='';
     onType('a'); toast('Time submitted'); loadAct();
   }catch(e){setSync('err','Error');toast(e.message,true);}
 }
@@ -811,7 +860,10 @@ async function loadAct(){
     var el=document.getElementById('act-entries');
     if(!mine.length){el.innerHTML='<div class="empty">No actuals yet today</div>';setSync('ok','Synced');return;}
     el.innerHTML='<table><thead><tr><th>Type</th><th>Client</th><th>Project</th><th>Cat</th><th>Hours</th><th>WFH</th><th>Comment</th><th>Detail</th><th>Audit</th><th></th></tr></thead><tbody>'+
-      mine.map(function(r){return '<tr><td><span class="badge '+(r.type==='Chargeable'?'b-ch':r.type==='Leave'?'b-lv':'b-nc')+'">'+r.type+'</span></td><td>'+(r.client||'--')+'</td><td>'+(r.proj||'--')+'</td><td>'+(r.cat||'--')+'</td><td><b>'+r.hrs+'h</b></td><td>'+(r.wfh&&r.wfh!=='No'?'<span class="badge b-wfh">WFH</span>':'--')+'</td><td style="font-size:12px;color:#854F0B">'+(r.comment||'--')+'</td><td style="font-size:12px;color:#888">'+(r.detail||'--')+'</td><td>'+(r.adminFlag==='Yes'?'<span class="badge b-admin">Admin:'+r.loggedBy+'</span>':'--')+'</td><td><button class="delbtn" onclick="delRow(\'ACT_'+TODAY+'\','+r.row+',\'loadAct\')">x</button></td></tr>';}).join('')+
+      mine.map(function(r){
+        var editBtn=adminOpen?'<button class="btn btnsm" style="padding:3px 8px;font-size:11px;margin-right:2px" onclick="showEditModal(\'ACT_'+TODAY+'\','+r.row+',[\''+TODAY+'\',\'\',\''+r.type+'\',\''+r.client+'\',\''+r.proj+'\',\''+r.cat+'\','+r.hrs+',\''+r.wfh+'\',\''+r.comment+'\',\''+r.detail+'\'],\'act\')">Edit</button>':'';
+        return '<tr><td><span class="badge '+(r.type==='Chargeable'?'b-ch':r.type==='Leave'?'b-lv':'b-nc')+'">'+r.type+'</span></td><td>'+(r.client||'--')+'</td><td>'+(r.proj||'--')+'</td><td>'+(r.cat||'--')+'</td><td><b>'+r.hrs+'h</b></td><td>'+(r.wfh&&r.wfh!=='No'?'<span class="badge b-wfh">WFH</span>':'--')+'</td><td style="font-size:12px;color:#854F0B">'+(r.comment||'--')+'</td><td style="font-size:12px;color:#888">'+(r.detail||'--')+'</td><td>'+(r.adminFlag==='Yes'?'<span class="badge b-admin">Admin:'+r.loggedBy+'</span>':'--')+'</td><td style="white-space:nowrap">'+editBtn+'<button class="delbtn" onclick="delRow(\'ACT_'+TODAY+'\','+r.row+',\'loadAct\')">x</button></td></tr>';
+      }).join('')+
       '</tbody></table>';
     setSync('ok','Synced');
   }catch(e){
@@ -845,6 +897,80 @@ async function delRow(sheet,rowIndex,reloadFn){
   if(!confirm('Delete this entry?')) return;
   try{await api({action:'deleteRow',sheet:sheet,rowIndex:rowIndex});toast('Deleted');window[reloadFn]();}
   catch(e){toast(e.message,true);}
+}
+
+// ── EDIT ROW (admin only) ──────────────────────────────────────────────────
+// Store edit context globally to avoid quote-in-onclick issues
+var _editSheet='', _editRow=0, _editType='';
+function closeEditModal(){ var m=document.getElementById('edit-modal'); if(m) m.remove(); }
+
+function showEditModal(sheet, rowIndex, rowData, type) {
+  var existing = document.getElementById('edit-modal');
+  if(existing) existing.remove();
+  _editSheet = sheet; _editRow = rowIndex; _editType = type;
+  var isEst = type === 'est';
+  var clientOpts = '<option value="">-- select --</option>'+clients.map(function(c){return '<option value="'+c.name+'"'+(rowData[3]===c.name?' selected':'')+'>'+c.name+'</option>';}).join('');
+  var h = '<div class="overlay" id="edit-modal" style="z-index:1100">';
+  h += '<div class="obox" style="width:520px;max-width:98vw">';
+  h += '<div class="otitle" style="margin-bottom:4px">Edit entry</div>';
+  h += '<div style="font-size:12px;color:#888;margin-bottom:14px">Admin only - '+sheet+' row '+rowIndex+'</div>';
+  h += '<div class="g3" style="margin-bottom:10px">';
+  h += '<div><label>Type</label><select id="edit-type"><option value="Chargeable"'+(rowData[2]==='Chargeable'?' selected':'')+'>Chargeable</option><option value="Non-Chargeable"'+(rowData[2]==='Non-Chargeable'?' selected':'')+'>Non-Chargeable</option><option value="Leave"'+(rowData[2]==='Leave'?' selected':'')+'>Leave</option></select></div>';
+  h += '<div><label>Client</label><select id="edit-client">'+clientOpts+'</select></div>';
+  h += '<div><label>Project / Activity</label><input id="edit-proj" value="'+(rowData[4]||'')+'"></div>';
+  h += '</div>';
+  h += '<div class="g3" style="margin-bottom:10px">';
+  h += '<div><label>Category</label><select id="edit-cat"><option value="">--</option><option value="FA"'+(rowData[5]==='FA'?' selected':'')+'>FA</option><option value="CS"'+(rowData[5]==='CS'?' selected':'')+'>CS</option><option value="Internal"'+(rowData[5]==='Internal'?' selected':'')+'>Internal</option></select></div>';
+  h += '<div><label>Hours</label><input type="number" id="edit-hrs" value="'+(rowData[6]||'')+'" step="0.25" min="0" max="8"></div>';
+  h += '<div><label>WFH</label><select id="edit-wfh"><option value="No"'+(rowData[7]==='No'?' selected':'')+'>No</option><option value="WFH"'+(rowData[7]==='WFH'?' selected':'')+'>WFH</option></select></div>';
+  h += '</div>';
+  if(isEst) {
+    h += '<div style="margin-bottom:12px"><label>Notes</label><input id="edit-notes" value="'+(rowData[8]||'')+'"></div>';
+  } else {
+    h += '<div class="g2" style="margin-bottom:12px">';
+    h += '<div><label>Deviation comment</label><input id="edit-comment" value="'+(rowData[8]||'')+'"></div>';
+    h += '<div><label>Activity detail</label><input id="edit-detail" value="'+(rowData[9]||'')+'"></div>';
+    h += '</div>';
+  }
+  h += '<div class="flex">';
+  h += '<button class="btn btnp" style="flex:1;justify-content:center" onclick="saveEdit()">Save changes</button>';
+  h += '<button class="btn" style="flex:1;justify-content:center" onclick="closeEditModal()">Cancel</button>';
+  h += '</div>';
+  h += '<div class="oerr" id="edit-err"></div>';
+  h += '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+}
+
+async function saveEdit() {
+  var sheet=_editSheet, rowIndex=_editRow, type=_editType;
+  var t = document.getElementById('edit-type').value;
+  var cl = document.getElementById('edit-client').value;
+  var proj = document.getElementById('edit-proj').value.trim();
+  var cat = document.getElementById('edit-cat').value;
+  var hrs = parseFloat(document.getElementById('edit-hrs').value);
+  var wfh = document.getElementById('edit-wfh').value;
+  if(!t||!hrs){document.getElementById('edit-err').textContent='Type and hours are required.';return;}
+  if(t==='Chargeable'&&!cl){document.getElementById('edit-err').textContent='Select a client for Chargeable.';return;}
+  var updates = [
+    {col:4, value:t},
+    {col:5, value:cl},
+    {col:6, value:proj},
+    {col:7, value:cat},
+    {col:8, value:hrs},
+    {col:9, value:wfh}
+  ];
+  if(type==='est') {
+    updates.push({col:10, value:document.getElementById('edit-notes').value.trim()});
+  } else {
+    updates.push({col:10, value:document.getElementById('edit-comment').value.trim()});
+    updates.push({col:11, value:document.getElementById('edit-detail').value.trim()});
+  }
+  try{
+    await api({action:'editRow', sheet:sheet, rowIndex:rowIndex, values:updates});
+    document.getElementById('edit-modal').remove();
+    toast('Entry updated');
+    if(type==='est') loadEst(); else loadAct();
+  }catch(e){document.getElementById('edit-err').textContent=e.message;}
 }
 
 async function loadVariance(){
@@ -1265,37 +1391,51 @@ async function buildDef(){
   catch(e){toast(e.message,true);}
 }
 
-function addMember(){
+async function addMember(){
   var n=document.getElementById('nm-n').value.trim();
   var init=document.getElementById('nm-init').value.trim().toUpperCase();
   var e=document.getElementById('nm-e').value.trim();
   var p=document.getElementById('nm-p').value.trim();
   if(!n||!p){toast('Name and password required',true);return;}
-  members=members.filter(function(m){return m.name!==n;});
-  members.push({name:n,initial:init,email:e,pwd:p});
-  ['nm-n','nm-init','nm-e','nm-p'].forEach(function(id){document.getElementById(id).value='';});
-  fillDDs();renderAdminContent();renderSetup();toast(n+' added');
+  try{
+    await api({action:'saveMember',member:{name:n,initial:init,email:e,pwd:p}});
+    members=members.filter(function(m){return m.name!==n;});
+    members.push({name:n,initial:init,email:e,pwd:p});
+    ['nm-n','nm-init','nm-e','nm-p'].forEach(function(id){document.getElementById(id).value='';});
+    fillDDs();renderAdminContent();toast(n+' added and saved to sheet');
+  }catch(ex){toast(ex.message,true);}
 }
 
-function delMember(n){
+async function delMember(n){
   if(!confirm('Remove '+n+'?')) return;
-  members=members.filter(function(m){return m.name!==n;});
-  renderAdminContent();renderSetup();
+  try{
+    await api({action:'deleteMember',name:n});
+    members=members.filter(function(m){return m.name!==n;});
+    fillDDs();renderAdminContent();toast(n+' removed');
+  }catch(ex){toast(ex.message,true);}
 }
 
-function addClient(){
+async function addClient(){
   var n=document.getElementById('cl-n').value.trim();
   if(!n){toast('Enter client name',true);return;}
-  clients=clients.filter(function(c){return c.name!==n;});
-  clients.push({name:n,contact:document.getElementById('cl-c').value.trim(),email:document.getElementById('cl-e').value.trim()});
-  ['cl-n','cl-c','cl-e'].forEach(function(id){document.getElementById(id).value='';});
-  fillDDs();renderAdminContent();toast('Client added');
+  var contact=document.getElementById('cl-c').value.trim();
+  var email=document.getElementById('cl-e').value.trim();
+  try{
+    await api({action:'saveClient',client:{name:n,contact:contact,email:email}});
+    clients=clients.filter(function(c){return c.name!==n;});
+    clients.push({name:n,contact:contact,email:email});
+    ['cl-n','cl-c','cl-e'].forEach(function(id){document.getElementById(id).value='';});
+    fillDDs();renderAdminContent();toast('Client added and saved to sheet');
+  }catch(ex){toast(ex.message,true);}
 }
 
-function delClient(n){
+async function delClient(n){
   if(!confirm('Remove '+n+'?')) return;
-  clients=clients.filter(function(c){return c.name!==n;});
-  fillDDs();renderAdminContent();
+  try{
+    await api({action:'deleteClient',name:n});
+    clients=clients.filter(function(c){return c.name!==n;});
+    fillDDs();renderAdminContent();toast(n+' removed');
+  }catch(ex){toast(ex.message,true);}
 }
 
 
@@ -1619,6 +1759,7 @@ async function genDashAI() {
   }
   spin.style.display = 'none';
 }
+
 
 </script>
 </body>
