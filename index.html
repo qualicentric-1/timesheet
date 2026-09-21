@@ -1752,4 +1752,24 @@ async function genDashAI() {
   prompt += 'Write a professional townhall-style analysis (7-9 bullet points) covering: total hours vs budget variance, chargeable efficiency, top clients with over/under budget commentary, top contributors, non-chargeable and leave commentary, one key recommendation. Use bullet points starting with *. Professional tone suitable for a team townhall.';
 
   try {
-    var res = await fet
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1200,
+        messages: [{role: 'user', content: prompt}]
+      })
+    });
+    var d = await res.json();
+    aiTxt.textContent = d.content[0].text;
+  } catch(e) {
+    aiTxt.textContent = 'Error: ' + e.message;
+  }
+  spin.style.display = 'none';
+}
+
+
+</script>
+</body>
+</html>
