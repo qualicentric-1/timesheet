@@ -586,11 +586,10 @@ function doLogin(){
     document.getElementById('uname').textContent=member.name;
     document.getElementById('e-who').textContent=member.name;
     document.getElementById('a-who').textContent=member.name;
-    setSync('ok','Loading...');
-    loadMasterConfig(function() {
-      fillDDs(); setSync('ok','Connected');
-      fetchLockState(); loadEst();
-    });
+    fillDDs();
+    setSync('ok','Connected');
+    fetchLockState();
+    loadEst();
     return;
   }
   if(members.length === 0) {
@@ -619,19 +618,7 @@ function goTab(name){
   if(name==='setup') renderSetup();
 }
 
-function loadMasterConfig(callback) {
-  api({action:'getMasterConfig'}).then(function(r) {
-    // Only replace if sheet has data — otherwise keep hardcoded defaults
-    if (r.members && r.members.length > 0) members = r.members;
-    if (r.clients && r.clients.length > 0) clients = r.clients;
-    if (callback) callback();
-  }).catch(function(e) {
-    // Sheet not set up or connection failed — use hardcoded MEMBERS/CLIENTS
-    members = MEMBERS.map(function(m){return Object.assign({},m);});
-    clients = CLIENTS.map(function(c){return Object.assign({},c,{contact:'',email:''});});
-    if (callback) callback();
-  });
-}
+/* loadMasterConfig removed - using hardcoded members */
 
 function fillDDs(){
   var opts='<option value="">-- select --</option>'+clients.map(function(c){return '<option value="'+c.name+'">'+c.name+'</option>';}).join('');
